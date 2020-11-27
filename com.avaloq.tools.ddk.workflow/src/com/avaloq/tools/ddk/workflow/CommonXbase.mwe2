@@ -11,8 +11,8 @@
 module com.avaloq.tools.ddk.workflow.CommonXbase
 
 import org.eclipse.emf.mwe.utils.*
-import org.eclipse.xtext.generator.*
 import org.eclipse.xtext.ui.generator.*
+import org.eclipse.xtext.xtext.generator.*
 
 import com.avaloq.tools.ddk.xtext.*
 import com.avaloq.tools.ddk.xtext.generator.*
@@ -94,12 +94,12 @@ Workflow {
     generateEdit = generateEdit
   }
 
-  component = Generator {
-    pathRtProject = runtimeProject
-    pathUiProject = uiProject
-    pathTestProject = testProject
-    projectNameRt = projectNameRt
-    projectNameUi = projectNameUi
+  component = XtextGenerator {
+//    pathRtProject = runtimeProject
+//    pathUiProject = uiProject
+//    pathTestProject = testProject
+//    projectNameRt = projectNameRt
+//    projectNameUi = projectNameUi
 
     language = ExtendedLanguageConfig {
       forcedResourceSet = resourceSet
@@ -123,14 +123,14 @@ Workflow {
       }
 
       // the serialization component
-      fragment = serializer.SerializerFragment {}
+      fragment = serializer.SerializerFragment2 {}
 
       // the following fragment generates an Antlr parser
-      fragment = org.eclipse.xtext.generator.parser.antlr.XtextAntlrGeneratorFragment {}
+      fragment = org.eclipse.xtext.xtext.generator.parser.antlr.XtextAntlrGeneratorFragment2 {}
 
 
       // a custom ResourceFactory for use with EMF
-      fragment = resourceFactory.ResourceFactoryFragment {
+      fragment = resourceFactory.ResourceFactoryFragment2 {
         fileExtensions = resourceFactoryFileExtensions
       }
 

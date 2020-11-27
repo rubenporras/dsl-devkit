@@ -28,6 +28,7 @@ import org.eclipse.emf.common.util.WrappedException;
 import org.eclipse.emf.ecore.resource.URIConverter;
 import org.eclipse.xpand2.XpandExecutionContext;
 import org.eclipse.xtext.Grammar;
+import org.eclipse.xtext.generator.ecore.EMFGeneratorFragment;
 import org.eclipse.xtext.generator.ecore.EcoreGeneratorFragment;
 
 import com.google.common.base.Function;
@@ -48,7 +49,7 @@ import com.google.common.collect.Sets;
  */
 @SuppressWarnings("deprecation")
 // TODO: DSL-369: figure out how to refactor this properly to not use deprecated stuff
-public class CustomClassEcoreGeneratorFragment extends EcoreGeneratorFragment {
+public class CustomClassEcoreGeneratorFragment extends EMFGeneratorFragment {
 
   /** Class-wide logger. */
   private static final Logger LOGGER = Logger.getLogger(CustomClassEcoreGeneratorFragment.class);

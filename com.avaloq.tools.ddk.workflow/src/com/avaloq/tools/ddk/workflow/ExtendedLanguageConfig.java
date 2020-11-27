@@ -11,20 +11,13 @@
 package com.avaloq.tools.ddk.workflow;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import org.eclipse.emf.codegen.ecore.genmodel.GenModel;
 import org.eclipse.emf.codegen.ecore.genmodel.GenPackage;
 import org.eclipse.emf.common.util.URI;
-import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EPackage;
-import org.eclipse.emf.ecore.plugin.EcorePlugin;
-import org.eclipse.emf.ecore.resource.Resource;
-import org.eclipse.emf.ecore.resource.ResourceSet;
-import org.eclipse.emf.ecore.resource.impl.ResourceSetImpl;
-import org.eclipse.xtext.generator.GenModelAccess;
-import org.eclipse.xtext.generator.LanguageConfig;
+import org.eclipse.xtext.xtext.generator.XtextGeneratorLanguage;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
@@ -34,8 +27,7 @@ import com.google.common.collect.Sets;
 /**
  * Registers EPackages for referenced GenModls. Supports content types.
  */
-@SuppressWarnings("deprecation")
-public class ExtendedLanguageConfig extends LanguageConfig {
+public class ExtendedLanguageConfig extends XtextGeneratorLanguage {
 
   private List<String> contentTypes;
   private String languageName;
@@ -67,37 +59,37 @@ public class ExtendedLanguageConfig extends LanguageConfig {
     return preferencePagesCategory;
   }
 
-  @Override
-  protected boolean isCheckFileExtension() {
-    return false;
-  }
+  // @Override
+  // protected boolean isCheckFileExtension() {
+  // return false;
+  // }
 
-  /**
-   * {@inheritDoc}
-   * <p>
-   * Registers all EPackages (transitively) referenced by registered GenModels prior to calling {@link LanguageConfig#setUri(String)}.
-   */
-  @Override
-  public void setUri(final String uri) {
-    ResourceSet rs = new ResourceSetImpl();
-    Set<URI> result = Sets.newHashSet();
-    Map<String, URI> genModelLocationMap = EcorePlugin.getEPackageNsURIToGenModelLocationMap();
-    for (Map.Entry<String, URI> entry : genModelLocationMap.entrySet()) {
-      Resource resource = GenModelAccess.getGenModelResource(null, entry.getKey(), rs);
-      if (resource != null) {
-        for (EObject model : resource.getContents()) {
-          if (model instanceof GenModel) {
-            GenModel genModel = (GenModel) model;
-            result.addAll(getReferencedEPackages(genModel));
-          }
-        }
-      }
-    }
-    for (URI u : result) {
-      addLoadedResource(u.toString());
-    }
-    super.setUri(uri);
-  }
+  // /**
+  // * {@inheritDoc}
+  // * <p>
+  // * Registers all EPackages (transitively) referenced by registered GenModels prior to calling {@link LanguageConfig#setUri(String)}.
+  // */
+  // @Override
+  // public void setUri(final String uri) {
+  // ResourceSet rs = new ResourceSetImpl();
+  // Set<URI> result = Sets.newHashSet();
+  // Map<String, URI> genModelLocationMap = EcorePlugin.getEPackageNsURIToGenModelLocationMap();
+  // for (Map.Entry<String, URI> entry : genModelLocationMap.entrySet()) {
+  // Resource resource = GenModelAccess.getGenModelResource(null, entry.getKey(), rs);
+  // if (resource != null) {
+  // for (EObject model : resource.getContents()) {
+  // if (model instanceof GenModel) {
+  // GenModel genModel = (GenModel) model;
+  // result.addAll(getReferencedEPackages(genModel));
+  // }
+  // }
+  // }
+  // }
+  // for (URI u : result) {
+  // addLoadedResource(u.toString());
+  // }
+  // super.setUri(uri);
+  // }
 
   /**
    * Returns the set of all EPackage resource URIs referenced by the given GenModel.
