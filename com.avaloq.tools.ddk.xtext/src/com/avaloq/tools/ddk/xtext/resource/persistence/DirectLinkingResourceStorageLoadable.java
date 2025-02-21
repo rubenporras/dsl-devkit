@@ -17,8 +17,10 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipInputStream;
 
@@ -65,14 +67,12 @@ public class DirectLinkingResourceStorageLoadable extends ResourceStorageLoadabl
    * - count the number of EObjects added to the Resource
    */
   private final class EObjectInputStreamExtension extends BinaryResourceImpl.EObjectInputStream {
-    private int objectCount;
+    private boolean recordObjects;
+
+    private final List<Boolean> isContained = new ArrayList<>();
 
     private EObjectInputStreamExtension(final InputStream inputStream, final Map<?, ?> options) throws IOException {
       super(inputStream, options);
-    }
-
-    public int eObjectCount() {
-      return objectCount;
     }
 
     @Override
@@ -86,12 +86,32 @@ public class DirectLinkingResourceStorageLoadable extends ResourceStorageLoadabl
     public InternalEObject loadEObject() throws IOException {
       final InternalEObject result = super.loadEObject();
       handleLoadEObject(result, this);
-      objectCount++;
       return result;
     }
 
     @Override
     protected void loadFeatureValue(final InternalEObject internalEObject, final EStructuralFeatureData eStructuralFeatureData) throws IOException {
+      if (recordObjects) {
+        switch (eStructuralFeatureData.kind) {
+        // based on org.eclipse.emf.ecore.resource.impl.BinaryResourceImpl.BinaryIO.FeatureKind.get(EStructuralFeature)
+        case EOBJECT_CONTAINMENT:
+        case EOBJECT_CONTAINMENT_PROXY_RESOLVING:
+        case EOBJECT_CONTAINMENT_LIST:
+        case EOBJECT_CONTAINMENT_LIST_PROXY_RESOLVING:
+        case EOBJECT:
+        case EOBJECT_PROXY_RESOLVING:
+          isContained.add(Boolean.TRUE);
+          break;
+        case EOBJECT_CONTAINER:
+        case EOBJECT_CONTAINER_PROXY_RESOLVING:
+        case EOBJECT_LIST:
+        case EOBJECT_LIST_PROXY_RESOLVING:
+          isContained.add(Boolean.FALSE);
+          break;
+        default:
+          // not an object;
+        }
+      }
       try {
         super.loadFeatureValue(internalEObject, eStructuralFeatureData);
         // CHECKSTYLE:OFF
@@ -107,8 +127,7 @@ public class DirectLinkingResourceStorageLoadable extends ResourceStorageLoadabl
       }
     }
 
-    @Override
-    public void loadResource(final Resource resource) throws IOException {
+    public void loadResource(final Resource resource, final List<EObject> firstContainerObjects) throws IOException {
       this.resource = resource;
       resourceSet = resource.getResourceSet();
       URI uri = resource.getURI();
@@ -123,7 +142,11 @@ public class DirectLinkingResourceStorageLoadable extends ResourceStorageLoadabl
       }
       InternalEObject[] values = allocateInternalEObjectArray(size);
       for (int i = 0; i < size; ++i) {
+        recordObjects = i == 0;
         values[i] = loadEObject();
+        if (i == 0) {
+          firstContainerObjects.addAll(eObjectList);
+        }
       }
       internalEObjectList.setData(size, values);
       @SuppressWarnings("unchecked")
@@ -146,7 +169,8 @@ public class DirectLinkingResourceStorageLoadable extends ResourceStorageLoadabl
 
   private ResourceLoadMode mode;
 
-  private int eObjectCount;
+  private List<Boolean> isContained;
+  private List<EObject> objects;
 
   public DirectLinkingResourceStorageLoadable(final InputStream in, final boolean loadNodeModel, final boolean splitContents, final ITraceSet traceSet) {
     super(in, loadNodeModel);
@@ -271,7 +295,7 @@ public class DirectLinkingResourceStorageLoadable extends ResourceStorageLoadabl
       case SKIP:
         break;
       case PROXY:
-        ProxyCompositeNode.installProxyNodeModel(resource, eObjectCount);
+        ProxyCompositeNode.installProxyNodeModel(resource, objects, isContained);
         break;
       case LOAD:
         readNodeModel(resource, new NonLockingBufferInputStream(zipIn), content);
@@ -378,8 +402,9 @@ public class DirectLinkingResourceStorageLoadable extends ResourceStorageLoadabl
   @Override
   protected void readContents(final StorageAwareResource resource, final InputStream inputStream) throws IOException {
     final EObjectInputStreamExtension in = new EObjectInputStreamExtension(inputStream, Collections.emptyMap());
-    in.loadResource(resource);
-    eObjectCount = in.eObjectCount();
+    objects = new ArrayList<>();
+    in.loadResource(resource, objects);
+    isContained = in.isContained;
   }
 
 }
