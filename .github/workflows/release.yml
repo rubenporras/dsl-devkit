@@ -12,7 +12,6 @@ concurrency:
 
 permissions:
   contents: write
-  pages: write
   pull-requests: write
 
 jobs:
@@ -75,14 +74,6 @@ jobs:
           path: ddk-repository/target/repository/
           retention-days: 30
 
-      - name: Enable GitHub Pages
-        run: |
-          gh api --method POST "/repos/${{ github.repository }}/pages" \
-            -f "source[branch]=gh-pages" \
-            -f "source[path]=/" 2>/dev/null || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Check out gh-pages branch
         id: checkout-gh-pages
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
@@ -112,6 +103,7 @@ jobs:
           mkdir gh-pages
           cd gh-pages
           git init -b gh-pages
+          touch .nojekyll
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -121,6 +113,8 @@ jobs:
           cd gh-pages
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
+
+          touch .nojekyll
 
           if [ -n "$RELEASE_VERSION" ]; then
             TARGET="p2/releases/$RELEASE_VERSION"
@@ -141,6 +135,11 @@ jobs:
             HIGHEST=$(ls -1 p2/releases | grep -v latest | sort -Vr | head -1)
             rm -rf p2/releases/latest
             mkdir -p p2/releases/latest
+            cat > p2/releases/latest/p2.index << 'PEOF'
+          version=1
+          metadata.repository.factory.order=compositeContent.xml,\!
+          artifact.repository.factory.order=compositeArtifacts.xml,\!
+          PEOF
             cat > p2/releases/latest/compositeContent.xml << EOF
           <?xml version='1.0' encoding='UTF-8'?>
           <?compositeMetadataRepository version='1.0.0'?>
@@ -161,6 +160,11 @@ jobs:
             SHORT_SHA="${GITHUB_SHA::8}"
             rm -rf p2/snapshots/latest
             mkdir -p p2/snapshots/latest
+            cat > p2/snapshots/latest/p2.index << 'PEOF'
+          version=1
+          metadata.repository.factory.order=compositeContent.xml,\!
+          artifact.repository.factory.order=compositeArtifacts.xml,\!
+          PEOF
             cat > p2/snapshots/latest/compositeContent.xml << EOF
           <?xml version='1.0' encoding='UTF-8'?>
           <?compositeMetadataRepository version='1.0.0'?>
