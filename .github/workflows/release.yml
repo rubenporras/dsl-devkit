@@ -127,17 +127,47 @@ jobs:
             cp -r ../ddk-repository/target/repository/. "$TARGET/"
           fi
 
+          TIMESTAMP="$(date +%s)000"
           if [ -n "$RELEASE_VERSION" ]; then
             HIGHEST=$(ls -1 p2/releases | grep -v latest | sort -Vr | head -1)
             rm -rf p2/releases/latest
-            cp -r "p2/releases/$HIGHEST" p2/releases/latest
+            mkdir -p p2/releases/latest
+            cat > p2/releases/latest/compositeContent.xml << EOF
+          <?xml version='1.0' encoding='UTF-8'?>
+          <?compositeMetadataRepository version='1.0.0'?>
+          <repository name='DDK p2 Latest Release' type='org.eclipse.equinox.internal.p2.metadata.repository.CompositeMetadataRepository' version='1.0.0'>
+            <properties size='1'><property name='p2.timestamp' value='$TIMESTAMP'/></properties>
+            <children size='1'><child location='../$HIGHEST/'/></children>
+          </repository>
+          EOF
+            cat > p2/releases/latest/compositeArtifacts.xml << EOF
+          <?xml version='1.0' encoding='UTF-8'?>
+          <?compositeArtifactRepository version='1.0.0'?>
+          <repository name='DDK p2 Latest Release' type='org.eclipse.equinox.internal.p2.artifact.repository.CompositeArtifactRepository' version='1.0.0'>
+            <properties size='1'><property name='p2.timestamp' value='$TIMESTAMP'/></properties>
+            <children size='1'><child location='../$HIGHEST/'/></children>
+          </repository>
+          EOF
           else
+            SHORT_SHA="${GITHUB_SHA::8}"
             rm -rf p2/snapshots/latest
-            cp -r "p2/snapshots/${GITHUB_SHA::8}" p2/snapshots/latest
-            # Prune snapshots to last 20
-            if [ -d p2/snapshots ]; then
-              (cd p2/snapshots && ls -1t | grep -v latest | tail -n +21 | xargs -I{} rm -rf "{}")
-            fi
+            mkdir -p p2/snapshots/latest
+            cat > p2/snapshots/latest/compositeContent.xml << EOF
+          <?xml version='1.0' encoding='UTF-8'?>
+          <?compositeMetadataRepository version='1.0.0'?>
+          <repository name='DDK p2 Latest Snapshot' type='org.eclipse.equinox.internal.p2.metadata.repository.CompositeMetadataRepository' version='1.0.0'>
+            <properties size='1'><property name='p2.timestamp' value='$TIMESTAMP'/></properties>
+            <children size='1'><child location='../$SHORT_SHA/'/></children>
+          </repository>
+          EOF
+            cat > p2/snapshots/latest/compositeArtifacts.xml << EOF
+          <?xml version='1.0' encoding='UTF-8'?>
+          <?compositeArtifactRepository version='1.0.0'?>
+          <repository name='DDK p2 Latest Snapshot' type='org.eclipse.equinox.internal.p2.artifact.repository.CompositeArtifactRepository' version='1.0.0'>
+            <properties size='1'><property name='p2.timestamp' value='$TIMESTAMP'/></properties>
+            <children size='1'><child location='../$SHORT_SHA/'/></children>
+          </repository>
+          EOF
           fi
 
           # Generate index.html
@@ -176,6 +206,36 @@ jobs:
             exit 0
           fi
           git commit -m "Publish $REF_DESC"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:gh-pages; then
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; fetching and rebasing"
+            git fetch origin gh-pages
+            git rebase origin/gh-pages
+          done
+          echo "Failed to push gh-pages after 3 attempts"
+          exit 1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clean up old p2 snapshots
+        if: steps.version.outputs.release != 'true'
+        run: |
+          cd gh-pages
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          if [ -d p2/snapshots ]; then
+            (cd p2/snapshots && ls -1t | grep -v latest | tail -n +21 | xargs -r -I{} rm -rf "{}")
+          fi
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No snapshot cleanup needed"
+            exit 0
+          fi
+          git commit -m "Clean up old p2 snapshots"
           for attempt in 1 2 3; do
             if git push origin HEAD:gh-pages; then
               exit 0
