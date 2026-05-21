@@ -1,0 +1,289 @@
+name: release
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [master, 'v[0-9]*']
+    tags: ['v*']
+
+concurrency:
+  group: publish-ghpages-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine release version
+        id: version
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "SNAPSHOT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+          echo "release=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 21
+        if: steps.version.outputs.release != 'true'
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Log tool versions
+        if: steps.version.outputs.release != 'true'
+        run: |
+          java --version
+          mvn --version
+
+      - name: Set up workspace
+        if: steps.version.outputs.release != 'true'
+        run: echo "WORKSPACE=${{ github.workspace }}" >> $GITHUB_ENV
+
+      - name: Cache Maven dependencies
+        if: steps.version.outputs.release != 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-publish-${{ hashFiles('**/pom.xml', '**/*.target') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-publish-
+            ${{ runner.os }}-maven-0-
+
+      - name: Build p2 update site
+        if: steps.version.outputs.release != 'true'
+        run: |
+          xvfb-run mvn clean verify \
+            -f ./ddk-parent/pom.xml \
+            --batch-mode
+
+      - name: Upload p2 update site as artifact
+        if: steps.version.outputs.release != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: p2-update-site-${{ github.sha }}
+          path: ddk-repository/target/repository/
+          retention-days: 30
+
+      - name: Check out gh-pages branch
+        id: checkout-gh-pages
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          ref: gh-pages
+          path: gh-pages
+          fetch-depth: 1
+        continue-on-error: true
+
+      - name: Verify snapshot exists for release
+        if: steps.version.outputs.release == 'true'
+        run: |
+          if [ "${{ steps.checkout-gh-pages.outcome }}" != "success" ]; then
+            echo "::error::gh-pages branch does not exist; no snapshot available for commit $SNAPSHOT_SHA"
+            exit 1
+          fi
+          if [ ! -d "gh-pages/p2/snapshots/$SNAPSHOT_SHA" ]; then
+            echo "::error::No snapshot found for commit $SNAPSHOT_SHA in p2/snapshots/; the commit must be built and deployed as a snapshot before releasing"
+            exit 1
+          fi
+          echo "Found snapshot for commit $SNAPSHOT_SHA"
+
+      - name: Bootstrap gh-pages branch if missing
+        if: steps.version.outputs.release != 'true' && steps.checkout-gh-pages.outcome != 'success'
+        run: |
+          rm -rf gh-pages
+          mkdir gh-pages
+          cd gh-pages
+          git init -b gh-pages
+          touch .nojekyll
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish p2 update site to gh-pages
+        run: |
+          cd gh-pages
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          touch .nojekyll
+
+          if [ -n "$RELEASE_VERSION" ]; then
+            TARGET="p2/releases/$RELEASE_VERSION"
+            REF_DESC="release $RELEASE_VERSION"
+            rm -rf "$TARGET"
+            mkdir -p "$TARGET"
+            cp -r "p2/snapshots/$SNAPSHOT_SHA/." "$TARGET/"
+          else
+            TARGET="p2/snapshots/${GITHUB_SHA::8}"
+            REF_DESC="snapshot ${GITHUB_SHA::8}"
+            rm -rf "$TARGET"
+            mkdir -p "$TARGET"
+            cp -r ../ddk-repository/target/repository/. "$TARGET/"
+          fi
+
+          TIMESTAMP="$(date +%s)000"
+          if [ -n "$RELEASE_VERSION" ]; then
+            HIGHEST=$(ls -1 p2/releases | grep -v latest | sort -Vr | head -1)
+            rm -rf p2/releases/latest
+            mkdir -p p2/releases/latest
+            cat > p2/releases/latest/p2.index << 'PEOF'
+          version=1
+          metadata.repository.factory.order=compositeContent.xml,\!
+          artifact.repository.factory.order=compositeArtifacts.xml,\!
+          PEOF
+            cat > p2/releases/latest/compositeContent.xml << EOF
+          <?xml version='1.0' encoding='UTF-8'?>
+          <?compositeMetadataRepository version='1.0.0'?>
+          <repository name='DDK p2 Latest Release' type='org.eclipse.equinox.internal.p2.metadata.repository.CompositeMetadataRepository' version='1.0.0'>
+            <properties size='1'><property name='p2.timestamp' value='$TIMESTAMP'/></properties>
+            <children size='1'><child location='../$HIGHEST/'/></children>
+          </repository>
+          EOF
+            cat > p2/releases/latest/compositeArtifacts.xml << EOF
+          <?xml version='1.0' encoding='UTF-8'?>
+          <?compositeArtifactRepository version='1.0.0'?>
+          <repository name='DDK p2 Latest Release' type='org.eclipse.equinox.internal.p2.artifact.repository.CompositeArtifactRepository' version='1.0.0'>
+            <properties size='1'><property name='p2.timestamp' value='$TIMESTAMP'/></properties>
+            <children size='1'><child location='../$HIGHEST/'/></children>
+          </repository>
+          EOF
+          else
+            SHORT_SHA="${GITHUB_SHA::8}"
+            rm -rf p2/snapshots/latest
+            mkdir -p p2/snapshots/latest
+            cat > p2/snapshots/latest/p2.index << 'PEOF'
+          version=1
+          metadata.repository.factory.order=compositeContent.xml,\!
+          artifact.repository.factory.order=compositeArtifacts.xml,\!
+          PEOF
+            cat > p2/snapshots/latest/compositeContent.xml << EOF
+          <?xml version='1.0' encoding='UTF-8'?>
+          <?compositeMetadataRepository version='1.0.0'?>
+          <repository name='DDK p2 Latest Snapshot' type='org.eclipse.equinox.internal.p2.metadata.repository.CompositeMetadataRepository' version='1.0.0'>
+            <properties size='1'><property name='p2.timestamp' value='$TIMESTAMP'/></properties>
+            <children size='1'><child location='../$SHORT_SHA/'/></children>
+          </repository>
+          EOF
+            cat > p2/snapshots/latest/compositeArtifacts.xml << EOF
+          <?xml version='1.0' encoding='UTF-8'?>
+          <?compositeArtifactRepository version='1.0.0'?>
+          <repository name='DDK p2 Latest Snapshot' type='org.eclipse.equinox.internal.p2.artifact.repository.CompositeArtifactRepository' version='1.0.0'>
+            <properties size='1'><property name='p2.timestamp' value='$TIMESTAMP'/></properties>
+            <children size='1'><child location='../$SHORT_SHA/'/></children>
+          </repository>
+          EOF
+          fi
+
+          # Generate index.html
+          {
+            echo '<!DOCTYPE html>'
+            echo '<html><body>'
+            echo '<h1>DSL DevKit p2 Repository</h1>'
+            echo '<h2>Snapshots</h2>'
+            echo '<ul>'
+            if [ -d p2/snapshots/latest ]; then
+              echo '  <li><a href="p2/snapshots/latest/">Latest Snapshot</a></li>'
+            fi
+            if [ -d p2/snapshots ]; then
+              for s in $(cd p2/snapshots && ls -1t | grep -v latest | head -20); do
+                echo "  <li><a href=\"p2/snapshots/$s/\">$s</a></li>"
+              done
+            fi
+            echo '</ul>'
+            if [ -d p2/releases ] && [ -n "$(ls -A p2/releases 2>/dev/null)" ]; then
+              echo '<h2>Releases</h2>'
+              echo '<ul>'
+              if [ -d p2/releases/latest ]; then
+                echo '  <li><a href="p2/releases/latest/">Latest Release</a></li>'
+              fi
+              for v in $(ls -1 p2/releases | grep -v latest | sort -Vr); do
+                echo "  <li><a href=\"p2/releases/$v/\">$v</a></li>"
+              done
+              echo '</ul>'
+            fi
+            echo '</body></html>'
+          } > index.html
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to publish"
+            exit 0
+          fi
+          git commit -m "Publish $REF_DESC"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:gh-pages; then
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; fetching and rebasing"
+            git fetch origin gh-pages
+            git rebase origin/gh-pages
+          done
+          echo "Failed to push gh-pages after 3 attempts"
+          exit 1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clean up old p2 snapshots
+        if: steps.version.outputs.release != 'true'
+        run: |
+          cd gh-pages
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          if [ -d p2/snapshots ]; then
+            (cd p2/snapshots && ls -1t | grep -v latest | tail -n +21 | xargs -r -I{} rm -rf "{}")
+          fi
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No snapshot cleanup needed"
+            exit 0
+          fi
+          git commit -m "Clean up old p2 snapshots"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:gh-pages; then
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; fetching and rebasing"
+            git fetch origin gh-pages
+            git rebase origin/gh-pages
+          done
+          echo "Failed to push gh-pages after 3 attempts"
+          exit 1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release with p2 update site
+        if: steps.version.outputs.release == 'true'
+        run: |
+          mkdir -p release-staging/repository
+          cp -r "gh-pages/p2/snapshots/$SNAPSHOT_SHA/." release-staging/repository/
+          cd release-staging
+          zip -r p2-update-site.zip repository/
+          gh release create "v$RELEASE_VERSION" \
+            p2-update-site.zip \
+            --generate-notes \
+            --title "Release $RELEASE_VERSION"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# Release workflow:
+#   Snapshots:  every push to master or v[0-9]* branches → build, deploy, p2/snapshots/<sha>/ (last 20 kept)
+#   Release:    click "Run workflow" or push v* tag → promote snapshot to p2/releases/<version>/
+#   Bump:       automatic PR after each release (0-4 minor cycle, then major)
+#   Patches:    push v* tag from release/X.Y.x branch → bump PR targets release branch
+#
+# p2 repository URLs (GitHub Pages):
+#   Latest snapshot: https://dsldevkit.github.io/dsl-devkit/p2/snapshots/latest/
+#   Pinned snapshot: https://dsldevkit.github.io/dsl-devkit/p2/snapshots/<sha>/
+#   Latest release:  https://dsldevkit.github.io/dsl-devkit/p2/releases/latest/
+#   Pinned release:  https://dsldevkit.github.io/dsl-devkit/p2/releases/{version}/
