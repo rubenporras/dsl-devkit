@@ -12,7 +12,6 @@ concurrency:
 
 permissions:
   contents: write
-  packages: write
   pull-requests: write
 
 jobs:
@@ -39,7 +38,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
-          server-id: github
 
       - name: Log tool versions
         if: steps.version.outputs.release != 'true'
@@ -61,27 +59,12 @@ jobs:
             ${{ runner.os }}-maven-publish-
             ${{ runner.os }}-maven-0-
 
-      - name: Build and deploy
+      - name: Build p2 update site
         if: steps.version.outputs.release != 'true'
         run: |
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
-          xvfb-run mvn clean deploy \
+          xvfb-run mvn clean verify \
             -f ./ddk-parent/pom.xml \
-            -DreleaseRepoId=github \
-            -DreleaseRepoName="GitHub Packages" \
-            -DreleaseRepoUrl="$REPO_URL" \
-            -DsnapshotRepoId=github \
-            -DsnapshotRepoName="GitHub Packages" \
-            -DsnapshotRepoUrl="$REPO_URL" \
-            -Dp2ArtifactoryReleaseRepoId=github \
-            -Dp2ArtifactoryReleaseRepoName="GitHub Packages" \
-            -Dp2ArtifactoryReleaseRepoUrl="$REPO_URL" \
-            -Dp2ArtifactorySnapshotRepoId=github \
-            -Dp2ArtifactorySnapshotRepoName="GitHub Packages" \
-            -Dp2ArtifactorySnapshotRepoUrl="$REPO_URL" \
             --batch-mode
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload p2 update site as artifact
         if: steps.version.outputs.release != 'true'
@@ -217,32 +200,6 @@ jobs:
             p2-update-site.zip \
             --generate-notes \
             --title "Release $RELEASE_VERSION"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Clean up old Maven snapshots
-        if: steps.version.outputs.release != 'true'
-        run: |
-          OWNER="${{ github.repository_owner }}"
-          KEEP=20
-          echo "Pruning all but last $KEEP versions per package"
-
-          ENTITY_TYPE=$(gh api "/users/$OWNER" -q '.type' 2>/dev/null || echo "User")
-          if [ "$ENTITY_TYPE" = "Organization" ]; then
-            API_PREFIX="/orgs/$OWNER"
-          else
-            API_PREFIX="/users/$OWNER"
-          fi
-
-          gh api "$API_PREFIX/packages?package_type=maven" --paginate -q '.[].name' | \
-          while read -r PKG; do
-            gh api "$API_PREFIX/packages/maven/$PKG/versions" --paginate \
-              -q 'sort_by(.created_at) | reverse | .[].id' | tail -n +$((KEEP + 1)) | \
-            while read -r VID; do
-              echo "  Deleting $PKG version $VID"
-              gh api --method DELETE "$API_PREFIX/packages/maven/$PKG/versions/$VID" || true
-            done
-          done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
