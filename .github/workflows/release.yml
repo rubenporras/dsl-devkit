@@ -1,0 +1,80 @@
+name: release
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: publish-ghpages-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: release
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine release version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "SNAPSHOT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+
+      - name: Check out gh-pages branch
+        id: checkout-gh-pages
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          ref: gh-pages
+          path: gh-pages
+          fetch-depth: 1
+        continue-on-error: true
+
+      - name: Verify snapshot exists for release
+        run: |
+          if [ "${{ steps.checkout-gh-pages.outcome }}" != "success" ]; then
+            echo "::error::gh-pages branch does not exist; no snapshot available for commit $SNAPSHOT_SHA"
+            exit 1
+          fi
+          if [ ! -d "gh-pages/p2/snapshots/$SNAPSHOT_SHA" ]; then
+            echo "::error::No snapshot found for commit $SNAPSHOT_SHA in p2/snapshots/; the commit must be built and deployed as a snapshot before releasing"
+            exit 1
+          fi
+          echo "Found snapshot for commit $SNAPSHOT_SHA"
+
+      - name: Publish p2 release to gh-pages
+        run: bash .github/scripts/publish-p2-ghpages.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release with p2 update site
+        run: |
+          mkdir -p release-staging/repository
+          cp -r "gh-pages/p2/snapshots/$SNAPSHOT_SHA/." release-staging/repository/
+          cd release-staging
+          zip -r p2-update-site.zip repository/
+          gh release create "v$RELEASE_VERSION" \
+            p2-update-site.zip \
+            --generate-notes \
+            --title "Release $RELEASE_VERSION"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# Release workflow:
+#   Snapshots:  every push to master or v[0-9]* branches → see snapshot.yml
+#   Release:    push v* tag → promote snapshot to p2/releases/<version>/
+#   Bump:       automatic PR after each release (0-4 minor cycle, then major)
+#   Patches:    push v* tag from release/X.Y.x branch → bump PR targets release branch
+#
+# p2 repository URLs (GitHub Pages):
+#   Latest snapshot: https://dsldevkit.github.io/dsl-devkit/p2/snapshots/latest/
+#   Pinned snapshot: https://dsldevkit.github.io/dsl-devkit/p2/snapshots/<sha>/
+#   Latest release:  https://dsldevkit.github.io/dsl-devkit/p2/releases/latest/
+#   Pinned release:  https://dsldevkit.github.io/dsl-devkit/p2/releases/{version}/
