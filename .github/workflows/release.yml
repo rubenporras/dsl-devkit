@@ -3,7 +3,7 @@ name: release
 on:
   workflow_dispatch: {}
   push:
-    branches: [master]
+    branches: [master, 'v[0-9]*']
     tags: ['v*']
 
 concurrency:
@@ -258,7 +258,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 # Release workflow:
-#   Snapshots:  every push to master → build, deploy, p2/snapshots/<sha>/ (last 20 kept)
+#   Snapshots:  every push to master or v[0-9]* branches → build, deploy, p2/snapshots/<sha>/ (last 20 kept)
 #   Release:    click "Run workflow" or push v* tag → promote snapshot to p2/releases/<version>/
 #   Bump:       automatic PR after each release (0-4 minor cycle, then major)
 #   Patches:    push v* tag from release/X.Y.x branch → bump PR targets release branch
