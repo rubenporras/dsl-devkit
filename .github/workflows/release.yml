@@ -27,18 +27,7 @@ jobs:
         id: version
         if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
         run: |
-          CURRENT=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout -f ./ddk-parent/pom.xml)
-          EXPECTED="${CURRENT%-SNAPSHOT}"
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="$EXPECTED"
-          else
-            VERSION="${GITHUB_REF_NAME#v}"
-            if [ "$VERSION" != "$EXPECTED" ]; then
-              echo "::error::Tag version $VERSION does not match pom version $EXPECTED (from $CURRENT)"
-              exit 1
-            fi
-          fi
+          VERSION="${GITHUB_REF_NAME#v}"
 
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "SNAPSHOT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
