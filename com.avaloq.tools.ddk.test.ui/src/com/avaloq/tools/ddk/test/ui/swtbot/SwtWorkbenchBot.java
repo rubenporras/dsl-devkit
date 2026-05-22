@@ -53,7 +53,7 @@ import com.avaloq.tools.ddk.test.ui.swtbot.util.PreferenceUtil;
 
 
 /**
- * Extended {@link SWTWorkbenchBot}.
+ * Extended {@link SWTWorkbenchBot} abc.
  */
 @SuppressWarnings("nls")
 public class SwtWorkbenchBot extends SWTWorkbenchBot {
